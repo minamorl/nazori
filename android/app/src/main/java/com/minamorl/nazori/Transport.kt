@@ -31,9 +31,17 @@ class Transport(
         private const val TAG = "nazori.transport"
         private const val SLOTS = 2048
         private const val USB_HOST = "127.0.0.1"
+        private const val HEARTBEAT_NANOS = 1_000_000_000L
     }
 
     private val lock = Object()
+
+    /** Prebuilt so the idle path allocates nothing. */
+    private val heartbeat: ByteArray = ByteArray(Wire.RECORD_BYTES).also { a ->
+        val b = Wire.newBuffer()
+        Wire.encodeInto(b, Wire.HEARTBEAT, 0, 0, 0L, 0f, 0f, 0f, 0f, 0f, 0f)
+        b.get(a, 0, Wire.RECORD_BYTES)
+    }
     private val ring = ByteArray(SLOTS * Wire.RECORD_BYTES)
     private var writeIdx = 0L
     private var readIdx = 0L
@@ -80,17 +88,20 @@ class Transport(
 
     fun droppedCount(): Long = synchronized(lock) { dropped }
 
-    /** Blocks until at least one record is available or the transport stops. */
+    /** Returns 0 when nothing arrived within one short wait. */
     private fun drain(out: ByteArray): Int {
         synchronized(lock) {
-            while (running && readIdx == writeIdx) {
+            // One bounded wait, then hand control back even when empty: the
+            // caller needs the idle moment to send a keepalive, and a loop that
+            // waits until data exists never gives it one.
+            if (running && readIdx == writeIdx) {
                 try {
                     lock.wait(200)
                 } catch (e: InterruptedException) {
                     return 0
                 }
             }
-            if (!running) return 0
+            if (!running || readIdx == writeIdx) return 0
             var n = 0
             while (readIdx < writeIdx && n + Wire.RECORD_BYTES <= out.size) {
                 val slot = (readIdx % SLOTS).toInt() * Wire.RECORD_BYTES
@@ -116,11 +127,23 @@ class Transport(
                 readHello(socket.getInputStream())
                 onState(State(Mode.USB, true, "USB 接続済み"))
                 backoffMs = 200L
+                var idleSince = System.nanoTime()
                 while (running) {
                     val n = drain(batch)
-                    if (n == 0) continue
+                    if (n == 0) {
+                        // A link that is never written to is never discovered to
+                        // be dead, and the UI would keep claiming "connected"
+                        // while the first real stroke is spent finding out.
+                        if (System.nanoTime() - idleSince >= HEARTBEAT_NANOS) {
+                            out.write(heartbeat)
+                            out.flush()
+                            idleSince = System.nanoTime()
+                        }
+                        continue
+                    }
                     out.write(batch, 0, n)
                     out.flush()
+                    idleSince = System.nanoTime()
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "tcp: ${e.message}")

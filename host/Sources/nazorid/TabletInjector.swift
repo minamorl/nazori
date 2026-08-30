@@ -114,6 +114,10 @@ final class TabletInjector {
             // There is no "undo this stroke" in the event stream, so the best
             // available repair is to lift the tip where it currently is.
             endContact(rec, at: point)
+        case .heartbeat:
+            // Filtered upstream; listed so a new record type cannot be added
+            // without deciding what the injector does with it.
+            break
         }
     }
 

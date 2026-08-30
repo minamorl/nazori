@@ -10,6 +10,8 @@ struct PenRecord {
         case move = 4
         case up = 5
         case cancel = 6
+        /// Idle keepalive from the device. Carries no pen state.
+        case heartbeat = 7
     }
 
     static let magic: UInt8 = 0xA7

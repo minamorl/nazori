@@ -26,6 +26,9 @@ object Wire {
     const val UP: Byte = 5
     const val CANCEL: Byte = 6
 
+    /** Idle keepalive. Carries no pen state; the host drops it. */
+    const val HEARTBEAT: Byte = 7
+
     // host -> device
     const val HELLO: Byte = 0x80.toByte()
 

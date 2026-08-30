@@ -28,6 +28,7 @@ final class Server {
     private var rejected: UInt64 = 0
     private var lastSeq: UInt32?
     private var gaps: UInt64 = 0
+    private var beats: UInt64 = 0
 
     init(options: Options, injector: TabletInjector, ws: WebSocketHub) {
         self.options = options
@@ -113,8 +114,12 @@ final class Server {
                 }
                 offset += PenRecord.byteCount
                 received += 1
-                if let prev = lastSeq, rec.seq != prev &+ 1 { gaps += 1 }
-                lastSeq = rec.seq
+                // Keepalives all carry seq 0, so they are excluded from the
+                // gap count before it can accuse the link of dropping samples.
+                if rec.kind != .heartbeat {
+                    if let prev = lastSeq, rec.seq != prev &+ 1 { gaps += 1 }
+                    lastSeq = rec.seq
+                }
                 deliver(rec)
             }
         }
@@ -122,6 +127,12 @@ final class Server {
     }
 
     private func deliver(_ rec: PenRecord) {
+        // A keepalive exists only to prove the socket is alive; it must not
+        // reach the event system or paint.
+        if rec.kind == .heartbeat {
+            beats += 1
+            return
+        }
         if options.enableInject { injector.handle(rec) }
         ws.broadcast(rec)
         if options.dump {
@@ -134,6 +145,6 @@ final class Server {
     }
 
     var stats: String {
-        "受信 \(received)  不正 \(rejected)  seq跳び \(gaps)"
+        "受信 \(received)  不正 \(rejected)  seq跳び \(gaps)  鼓動 \(beats)"
     }
 }

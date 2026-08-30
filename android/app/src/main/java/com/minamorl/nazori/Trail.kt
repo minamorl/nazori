@@ -85,6 +85,17 @@ class Trail(private val capacity: Int = 8192) {
             val age = nowNanos - ts[i]
             if (age >= fadeNanos || age < 0) { prev = -1; continue }
             alive = true
+            val isolated = (prev < 0 || stroke[prev] != stroke[i]) &&
+                (n + 1 >= count || stroke[(tail + n + 1) % capacity] != stroke[i])
+            if (isolated) {
+                // A tap produces a single sample. Drawing only segments would
+                // leave it invisible, so the point gets a dot of its own.
+                val f = 1f - age.toFloat() / fadeNanos
+                paint.color = color
+                paint.alpha = (255f * f * f).toInt().coerceIn(0, 255)
+                paint.strokeWidth = minWidthPx + (maxWidthPx - minWidthPx) * ps[i]
+                canvas.drawPoint(xs[i], ys[i], paint)
+            }
             if (prev >= 0 && stroke[prev] == stroke[i]) {
                 // Fade on a curve rather than linearly: the head of the trail
                 // should stay bright well past the halfway point.
