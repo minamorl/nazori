@@ -1,0 +1,11 @@
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+host/.build/
+tools/pentap
+tools/penwindow
+tools/presstest
+tools/presstest2
+tools/trustcheck
+*.apk
