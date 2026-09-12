@@ -14,7 +14,7 @@ Tab S11 (S Pen)  --USB/adb reverse-->  nazorid (Mac)  --+--> CGEvent (全アプ�
 |---|---|
 | `android/` | ペンを拾い、軌跡を描き、記録を送る Kotlin アプリ |
 | `host/` | 受けて macOS のイベントへ変換する常駐 `nazorid` |
-| `paint-adapter/` | WebSocket を paint の canvas へ流す ES モジュール |
+| `paint-adapter/` | WebSocket を paint の canvas へ流す ES モジュール (参照実装。本番は paint 側 `src/input/nazori.ts`) |
 | `tools/` | 検証用の計器。下の実測はこれで取った |
 | `PROTOCOL.md` | 40 バイト固定の有線規格 |
 
@@ -32,8 +32,29 @@ cd host && swift build -c release
 `nazorid` は既定でループバックの TCP しか開かない。Wi-Fi (UDP) は `--wifi`
 を付けたときだけ開く。付けると LAN から届くようになる。
 
-paint へ流すときは `paint-adapter/nazori-paint.js` を paint のページで読む。
-paint 本体には手を入れない。
+### paint (canvas.minamorl.com) へ流す
+
+paint 側の受け口は opt-in。`usb.sh` で `nazorid` を上げたあと:
+
+1. `https://canvas.minamorl.com/paint/?nazori=1` を開く。localStorage
+   (`paint.nazori`) に残るので、以後そのブラウザでは毎回
+   `ws://127.0.0.1:40119` へ繋ぎに行く。切るときは `?nazori=0`。
+2. Chrome (153, macOS) は https のページから `127.0.0.1` へ WebSocket を張る
+   とき Local Network Access の許可プロンプト「canvas.minamorl.com が次の許可を
+   求めています: このデバイス上の他のアプリやサービスにアクセスする」を出す。
+   **許可する**を押す。押すまで WebSocket は CONNECTING のまま黙って待つし、
+   プロンプトは Chrome の窓が前面のときにしか出ない。拒否済みや headless では
+   `net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` で即失敗する。許可は
+   origin 単位で保存される (戻すのは
+   `chrome://settings/content/siteDetails?site=https://canvas.minamorl.com`)。
+3. 描く。効いているかはストローク前後の画素差分で見る (線幅が筆圧に追従するか)。
+   状態表示の `P:` / `dabs:` はストローク終端の callback で書かれ `dabs:0` に
+   戻るので指標にならない。
+
+受け口を入れる前の本番 paint は OS 経路 (CGEvent) しか通らず、筆圧が `1.0` に
+潰れていた。paint 内の実装は `src/input/nazori.ts`
+(`paint-adapter/nazori-paint.js` の TypeScript 移植)。`nazori-paint.js` は参照
+実装として残す。規格を変えるときは両方を直す。
 
 ## 実測した限界 — 筆圧は Mac 全体へは届かない
 
@@ -72,8 +93,15 @@ paint 本体には手を入れない。
 - Android→Mac: 実機 SM-X730 から 74 記録、`seq` の跳びなし、不正 0。
 - HELLO 交換: 端末が受信した Mac の 1920x1080 から有効領域を 2500x1403 (=16:9)
   に自動レターボックス。受信座標から逆算して確認。
-- paint: 筆圧 `0.15+0.8·sin(πt)` の正弦ストロークを送り、線幅が中央で膨らみ
-  両端で細るのを画面で確認。paint の状態表示も `P:0.8750` と送った値を返した。
+- paint (ローカル): 筆圧 `0.15+0.8·sin(πt)` の正弦ストロークを送り、線幅が
+  中央で膨らみ両端で細るのを画面で確認。paint の状態表示も `P:0.8750` と送った
+  値を返した。
+- paint (本番 `canvas.minamorl.com/paint/?nazori=1`, main 509829f = PR #39
+  配信後, 2026-09-12): Chrome 153 で上の許可を通した profile に
+  `tools/send_stroke.py` (筆圧 `0.15+0.8·sin(πt)`) を流し、ストローク前後の
+  画素差分 6,059 px、線幅がストロークの 10% / 50% / 90% 地点で 6 / 10 / 5 px と
+  筆圧に追従した。同じ手順を `vite preview` で取ると 42,555 px、12 / 21 / 11 px
+  (ブラシサイズ設定が違うだけで比は同じ)。
 - macOS 全体: 上の表のとおり。
 
 ## 設計のメモ
