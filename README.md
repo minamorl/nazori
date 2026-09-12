@@ -56,6 +56,23 @@ paint 側の受け口は opt-in。`usb.sh` で `nazorid` を上げたあと:
 (`paint-adapter/nazori-paint.js` の TypeScript 移植)。`nazori-paint.js` は参照
 実装として残す。規格を変えるときは両方を直す。
 
+**線の位置。** `nazorid` は同じ記録を CGEvent (OS 全体、カーソルが動く) と
+WebSocket の二方向へ配る。受け口が WebSocket の正規化座標だけで描くと、線が
+カーソルの真下に乗らない (実測: 表示座標 (700,600) の記録が Chrome には
+client (700,483) で届くのに、canvas への contain 写像は (368,449) に落ちて横
+332 px ずれた)。paint PR #40 で受け口に位置モードを足した:
+
+- `overlay` (既定の `usb.sh` = inject あり): 位置・down/up・hover は OS 経路の
+  trusted な pen 事象から、筆圧・tilt・twist は WebSocket の直近記録から取る。
+  trusted 事象は capture phase で止め、同じ座標の合成事象 (pointerId 4242) だけ
+  を paint に見せる。線はカーソルの真下に本物の筆圧で乗る。WebSocket が繋がって
+  いないときは trusted 事象を素通しにするので、筆圧 `1.0` でも描ける。
+- `canvas` (`nazorid --no-inject`、trusted な pen 事象が来ない環境用): 従来の
+  contain 写像。タブレット全面が canvas に写る。
+
+既定は auto で、trusted な pen 事象を一度観測したら `overlay` に切り替える。
+`nazori-paint.js` (参照実装) に `overlay` は無く、`canvas` 写像だけ。
+
 ## 実測した限界 — 筆圧は Mac 全体へは届かない
 
 ここは「たぶん通る」で済ませられない箇所なので、計器を作って測った
@@ -102,6 +119,10 @@ paint 側の受け口は opt-in。`usb.sh` で `nazorid` を上げたあと:
   画素差分 6,059 px、線幅がストロークの 10% / 50% / 90% 地点で 6 / 10 / 5 px と
   筆圧に追従した。同じ手順を `vite preview` で取ると 42,555 px、12 / 21 / 11 px
   (ブラシサイズ設定が違うだけで比は同じ)。
+- paint 位置 (`vite preview` + `nazorid`, PR #40, 2026-09-12): 表示座標
+  x 200..1100・y 600±80 の正弦ストローク (筆圧 0.15..0.95) を流し、trusted の
+  pointermove が paint に届いた数 0、合成事象 59 件 (筆圧 0.15..0.95)、描画位置は
+  カーソルの真下 (canvas 内 y≈452±80 CSS px) に一致。
 - macOS 全体: 上の表のとおり。
 
 ## 設計のメモ
